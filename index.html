@@ -9,7 +9,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -43,6 +42,8 @@
     .lede { color:var(--muted); max-width:630px; line-height:1.65; margin:0; font-size:15px; }
     .period { white-space:nowrap; display:flex; align-items:center; gap:9px; color:#506475; font-size:12px; font-weight:600; padding:10px 13px; background:#fff; border:1px solid var(--line); border-radius:9px; margin-bottom:4px; }
     .period-dot { width:7px; height:7px; border-radius:50%; background:#55a586; box-shadow:0 0 0 3px #e4f2ec; }
+    .stats-controls { display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-bottom:12px; color:var(--muted); font-size:12px; font-weight:600; }
+    .stats-controls select { appearance:none; color:var(--ink); background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23647587' stroke-width='1.7' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E") no-repeat right 11px center; border:1px solid var(--line); border-radius:8px; padding:9px 31px 9px 11px; font:600 12px 'DM Sans',sans-serif; cursor:pointer; min-width:190px; }
     .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:21px; }
     .stat { background:var(--paper); border:1px solid var(--line); border-radius:13px; box-shadow:var(--shadow); padding:22px 24px 20px; min-height:144px; position:relative; overflow:hidden; }
     .stat:after { content:''; position:absolute; width:80px; height:80px; right:-28px; top:-32px; border-radius:50%; background:var(--green-soft); opacity:.7; }
@@ -106,14 +107,15 @@
       </div>
       <div class="period"><span class="period-dot"></span>Dataset collected March 2026</div>
     </section>
+    <div class="stats-controls"><label for="city-filter">Summary view</label><select id="city-filter" aria-label="Filter summary statistics by city"><option value="all">All cities</option></select></div>
     <section class="stats" aria-label="Summary statistics">
-      <article class="stat"><div class="stat-label">Qualified home sales <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 4.5h14v11H3zM6 8h8M6 11h5"/></svg></span></div><div class="stat-value" id="sales-count">—</div><div class="stat-sub">Across 18 cities and towns</div></article>
+      <article class="stat"><div class="stat-label">Qualified home sales <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 4.5h14v11H3zM6 8h8M6 11h5"/></svg></span></div><div class="stat-value" id="sales-count">—</div><div class="stat-sub" id="sales-scope">Across all cities and towns</div></article>
       <article class="stat"><div class="stat-label">Median sale price <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h12v12H4zM7 7h6M7 10h6M7 13h3"/></svg></span></div><div class="stat-value" id="median-price">—</div><div class="stat-sub">The midpoint of qualifying sales</div></article>
       <article class="stat"><div class="stat-label">Average sale price <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 15.5 7 11l3 2.5 6-8"/><path d="M12 5.5h4v4"/></svg></span></div><div class="stat-value" id="average-price">—</div><div class="stat-sub">Arithmetic mean of qualifying sales</div></article>
     </section>
     <section class="content-grid" aria-label="City price comparison and highlights">
       <article class="panel chart-panel">
-        <div class="panel-head"><div><h2 class="panel-title">Median home sale price by city</h2><p class="panel-note">Each city’s median sale price · whole dollars</p></div><label class="sort-label" for="sort-order">Sort by <select id="sort-order"><option value="high">Highest first</option><option value="low">Lowest first</option><option value="alpha">City name</option></select></label></div>
+        <div class="panel-head"><div><h2 class="panel-title">Median home sale price by city</h2><p class="panel-note">All cities · median sale price in whole dollars</p></div><label class="sort-label" for="sort-order">Sort by <select id="sort-order"><option value="high">Highest first</option><option value="low">Lowest first</option><option value="alpha">City name</option></select></label></div>
         <div class="chart-wrap" id="chart-wrap"><canvas id="price-chart" role="img" aria-label="Bar chart showing median home sale prices by city"></canvas><div class="tooltip" id="tooltip"></div></div>
       </article>
       <aside class="side">
@@ -136,6 +138,8 @@
       const tooltip = document.getElementById('tooltip');
       const wrap = document.getElementById('chart-wrap');
       let chartData = [];
+      let salesByCity = new Map();
+      let allSales = [];
       let bars = [];
       let hovered = -1;
 
@@ -210,26 +214,42 @@
         document.getElementById('insight-copy').textContent = `At ${roundedMoney(high.value)}, its median is ${roundedMoney(high.value-low.value)} above ${low.city}, the lowest city median in this comparison.`;
         document.getElementById('top-cities').innerHTML = sorted.slice(0,3).map((d,i) => `<div class="rank-row"><span class="rank-num">0${i+1}</span><span class="rank-city">${d.city}</span><span class="rank-value">${roundedMoney(d.value)}</span></div>`).join('');
       }
+      function updateStats() {
+        const selectedCity = document.getElementById('city-filter').value;
+        const selectedSales = selectedCity === 'all' ? allSales : (salesByCity.get(selectedCity) || []);
+        document.getElementById('sales-count').textContent = integer.format(selectedSales.length);
+        document.getElementById('median-price').textContent = selectedSales.length ? roundedMoney(median(selectedSales)) : '—';
+        document.getElementById('average-price').textContent = selectedSales.length
+          ? roundedMoney(selectedSales.reduce((sum, price) => sum + price, 0) / selectedSales.length)
+          : '—';
+        document.getElementById('sales-scope').textContent = selectedCity === 'all' ? 'Across all cities and towns' : `In ${selectedCity}`;
+      }
       function load(rows) {
-        const byCity = new Map();
-        const all = [];
+        salesByCity = new Map();
+        allSales = [];
         for (const row of rows) {
           const price = Number(row.sale_price);
           if (!Number.isFinite(price) || price < threshold) continue;
-          all.push(price);
+          allSales.push(price);
           const city = `${row.city}, ${row.state}`;
-          if (!byCity.has(city)) byCity.set(city, []);
-          byCity.get(city).push(price);
+          if (!salesByCity.has(city)) salesByCity.set(city, []);
+          salesByCity.get(city).push(price);
         }
-        document.getElementById('sales-count').textContent = integer.format(all.length);
-        document.getElementById('median-price').textContent = roundedMoney(median(all));
-        document.getElementById('average-price').textContent = roundedMoney(all.reduce((sum, price) => sum + price, 0) / all.length);
-        chartData = [...byCity].map(([city, prices]) => ({ city, value: median(prices), count: prices.length }));
+        const cityFilter = document.getElementById('city-filter');
+        [...salesByCity.keys()].sort((a,b) => a.localeCompare(b)).forEach(city => {
+          const option = document.createElement('option');
+          option.value = city;
+          option.textContent = city;
+          cityFilter.appendChild(option);
+        });
+        chartData = [...salesByCity].map(([city, prices]) => ({ city, value: median(prices), count: prices.length }));
         setInsight(chartData);
+        updateStats();
         document.getElementById('status').remove();
         render();
       }
       document.getElementById('sort-order').addEventListener('change', render);
+      document.getElementById('city-filter').addEventListener('change', updateStats);
       canvas.addEventListener('mousemove', event => {
         const rect = canvas.getBoundingClientRect();
         const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -244,15 +264,32 @@
       });
       canvas.addEventListener('mouseleave', () => { hovered = -1; tooltip.style.display = 'none'; drawChart(); });
       window.addEventListener('resize', drawChart);
-      if (window.Papa) {
-        Papa.parse(csvUrl, { download: true, header: true, skipEmptyLines: true, complete: results => load(results.data), error: () => showError() });
-      } else {
-        fetch(csvUrl).then(r => { if (!r.ok) throw new Error(); return r.text(); }).then(text => {
-          const [header, ...lines] = text.trim().split(/\r?\n/);
-          const fields = header.split(',');
-          load(lines.map(line => { const values = line.split(','); return Object.fromEntries(fields.map((field,i) => [field, values[i]])); }));
-        }).catch(showError);
+      function parseCsv(text) {
+        const records = [];
+        let record = [], field = '', quoted = false;
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          if (quoted) {
+            if (char === '"' && text[i + 1] === '"') { field += '"'; i++; }
+            else if (char === '"') quoted = false;
+            else field += char;
+          } else if (char === '"') quoted = true;
+          else if (char === ',') { record.push(field); field = ''; }
+          else if (char === '\n' || char === '\r') {
+            if (char === '\r' && text[i + 1] === '\n') i++;
+            record.push(field); field = '';
+            if (record.some(value => value !== '')) records.push(record);
+            record = [];
+          } else field += char;
+        }
+        if (field || record.length) { record.push(field); records.push(record); }
+        const fields = records.shift().map((name, i) => i === 0 ? name.replace(/^\uFEFF/, '') : name);
+        return records.map(values => Object.fromEntries(fields.map((name, i) => [name, values[i] ?? ''])));
       }
+      fetch(csvUrl).then(response => {
+        if (!response.ok) throw new Error('CSV request failed');
+        return response.text();
+      }).then(text => load(parseCsv(text))).catch(showError);
       function showError() { const status = document.getElementById('status'); status.textContent = 'The home sale data could not be loaded. Please refresh the page to try again.'; status.classList.add('error'); }
     })();
   </script>
